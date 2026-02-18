@@ -95,6 +95,22 @@ systemctl status autopikdown
 
 看到 `active (running)` 即表示部署成功 ✅
 
+## 重新安装 / 更新
+
+```bash
+cd /opt/AutoPikDown
+git pull
+
+# 重新安装依赖
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 重启服务
+systemctl restart autopikdown
+```
+
+> **说明**：`config.yaml` 不在版本控制中，更新代码不会覆盖你的配置。如需重置配置，可重新执行 `cp config.example.yaml config.yaml`。
+
 ## 常用命令
 
 ```bash
