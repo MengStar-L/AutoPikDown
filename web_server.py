@@ -313,14 +313,41 @@ class WebServer:
             success_count = 0
             all_file_ids = []
 
+            print(f"[PikPak] 开始处理 {len(saved_ids)} 个文件")
             for i, fid in enumerate(saved_ids, 1):
+                # 更新状态
                 await self._broadcast({"type": "task_status", "index": i, "status": f"获取下载链接 [{i}/{len(saved_ids)}]"})
 
+                # 重试机制 (最多3次)
+                max_retries = 3
+                urls = []
+                for attempt in range(max_retries):
+                    try:
+                        import asyncio
+                        # 设置 30秒 超时获取下载链接
+                        urls = await asyncio.wait_for(self._pikpak.get_download_urls(fid), timeout=30.0)
+                        if urls:
+                            break # 成功获取，跳出重试循环
+                    except asyncio.TimeoutError:
+                        print(f"[PikPak] 文件 {i} 获取超时，第 {attempt+1}/{max_retries} 次尝试")
+                        if attempt < max_retries - 1:
+                            await self._broadcast({"type": "task_status", "index": i, "status": f"获取超时，第 {attempt+2} 次重试..."})
+                            await asyncio.sleep(2)
+                    except Exception as e:
+                        print(f"[PikPak] 文件 {i} 获取出错: {e}")
+                        if attempt < max_retries - 1:
+                             await asyncio.sleep(2)
+
+                if not urls:
+                    print(f"[PikPak] 文件 {i} 获取下载链接失败，已重试 {max_retries} 次")
+                    await self._broadcast({"type": "task_error", "index": i, "message": f"获取链接失败 (重试{max_retries}次)"})
+                    continue
+
                 try:
-                    urls = await self._pikpak.get_download_urls(fid)
                     for url_info in urls:
                         all_file_ids.append(url_info["file_id"])
-                        gid = await self._aria2.add_uri(url_info["url"], url_info["name"])
+                        # 设置 10秒 超时推送 Aria2
+                        gid = await asyncio.wait_for(self._aria2.add_uri(url_info["url"], url_info["name"]), timeout=10.0)
                         if gid:
                             success_count += 1
                             await self._broadcast({
@@ -328,7 +355,11 @@ class WebServer:
                                 "index": i,
                                 "file_name": url_info["name"],
                             })
+                except asyncio.TimeoutError:
+                    print(f"[PikPak] Aria2 推送超时: 文件 {i}")
+                    await self._broadcast({"type": "task_error", "index": i, "message": "Aria2 请求超时"})
                 except Exception as e:
+                    print(f"[PikPak] 处理文件出错: {e}")
                     await self._broadcast({"type": "task_error", "index": i, "message": str(e)})
 
             await self._broadcast({

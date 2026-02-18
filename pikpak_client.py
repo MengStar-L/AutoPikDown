@@ -205,7 +205,11 @@ class PikPakClient:
         Returns:
             [{"name": "文件名", "url": "下载链接", "file_id": "文件ID"}, ...]
         """
-        info = await self.client.get_download_url(file_id)
+        try:
+            info = await self.client.get_download_url(file_id)
+        except Exception as e:
+            print(f"[PikPak] 获取下载链接失败: {e}")
+            raise
 
         # 如果是文件夹，递归获取子文件
         kind = info.get("kind", "")
