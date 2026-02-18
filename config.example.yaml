@@ -1,0 +1,14 @@
+pikpak:
+  username: "your_email@example.com"
+  password: "your_password"
+  save_dir: "/"                        # PikPak 离线保存目录
+  delete_after_download: true          # 推送 Aria2 后是否删除 PikPak 文件
+
+aria2:
+  rpc_url: "http://localhost:6800/jsonrpc"
+  rpc_secret: "your_aria2_secret"
+  download_dir: ""                     # Aria2 下载目录 (留空使用 Aria2 默认)
+
+task:
+  poll_interval: 3                     # 离线任务轮询间隔 (秒)
+  max_wait_time: 3600                  # 离线任务最大等待时间 (秒)

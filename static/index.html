@@ -1,0 +1,1355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoPikDown</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0b0b10;
+            --bg-sidebar: #13131c;
+            --bg-card: #1a1a26;
+            --bg-input: #22222f;
+            --border: #2a2a3c;
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888a0;
+            --text-dim: #55556a;
+            --accent: #7c5cfc;
+            --accent-hover: #8f72ff;
+            --accent-glow: rgba(124, 92, 252, 0.2);
+            --success: #4ade80;
+            --error: #f87171;
+            --warning: #fbbf24;
+            --info: #60a5fa;
+            --radius: 10px;
+            --sidebar-w: 220px;
+        }
+
+        /* VIP 徽章 */
+        .vip-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
+        }
+
+        .vip-badge.normal {
+            background: rgba(59, 130, 246, 0.15);
+            color: #60a5fa;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+        }
+
+        .vip-badge.premium {
+            background: rgba(245, 158, 11, 0.15);
+            color: #fbbf24;
+            border: 1px solid rgba(245, 158, 11, 0.3);
+        }
+
+        .vip-badge.premium::before {
+            content: "👑";
+            font-size: 9px;
+        }
+
+        /* 侧边栏账户信息 */
+        .sidebar-account {
+            padding: 12px 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .sidebar-account .account-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .sidebar-account .account-label {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .storage-bar {
+            height: 4px;
+            background: var(--bg-input);
+            border-radius: 2px;
+            overflow: hidden;
+            margin-top: 6px;
+        }
+
+        .storage-bar-fill {
+            height: 100%;
+            border-radius: 2px;
+            background: linear-gradient(90deg, var(--accent), #a78bfa);
+            transition: width 0.5s ease;
+        }
+
+        .storage-text {
+            font-size: 10px;
+            color: var(--text-dim);
+            margin-top: 4px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+        }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: var(--sidebar-w);
+            height: 100vh;
+            background: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 10;
+        }
+
+        .sidebar-brand {
+            padding: 20px 20px 24px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .sidebar-brand h1 {
+            font-size: 18px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #7c5cfc, #a78bfa);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .sidebar-brand::before {
+            content: "⚡";
+            font-size: 18px;
+        }
+
+        .sidebar-nav {
+            flex: 1;
+            padding: 0 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 11px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.15s;
+            user-select: none;
+            border: 1px solid transparent;
+        }
+
+        .nav-item:hover {
+            color: var(--text-primary);
+            background: var(--bg-input);
+        }
+
+        .nav-item.active {
+            color: var(--text-primary);
+            background: var(--accent-glow);
+            border-color: rgba(124, 92, 252, 0.15);
+        }
+
+        .nav-item.active .nav-icon {
+            color: var(--accent);
+        }
+
+        .nav-icon {
+            width: 20px;
+            text-align: center;
+            font-size: 15px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-footer {
+            padding: 14px 16px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        .ws-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--error);
+            transition: background 0.3s;
+        }
+
+        .ws-dot.connected {
+            background: var(--success);
+        }
+
+        /* ── Main Content ── */
+        .main {
+            flex: 1;
+            height: 100vh;
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .page {
+            display: none;
+            padding: 28px 32px;
+            animation: pageIn 0.25s ease;
+        }
+
+        .page.active {
+            display: block;
+        }
+
+        @keyframes pageIn {
+            from {
+                opacity: 0;
+                transform: translateY(6px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .page-title {
+            font-size: 20px;
+            font-weight: 700;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .page-title .icon {
+            font-size: 22px;
+        }
+
+        /* ── Card ── */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+        }
+
+        .card+.card {
+            margin-top: 16px;
+        }
+
+        .card-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .card-header h3 {
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 16px;
+        }
+
+        /* ── Buttons ── */
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, var(--accent), #6346e0);
+            color: white;
+            box-shadow: 0 2px 10px var(--accent-glow);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, var(--accent-hover), #7556f0);
+            transform: translateY(-1px);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-ghost {
+            background: var(--bg-input);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-ghost:hover {
+            background: var(--border);
+        }
+
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+        }
+
+        /* ── Magnet ── */
+        .magnet-input {
+            width: 100%;
+            min-height: calc(100vh - 240px);
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: 'Cascadia Code', 'Fira Code', monospace;
+            font-size: 13px;
+            padding: 12px;
+            resize: vertical;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .magnet-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        .magnet-input::placeholder {
+            color: var(--text-secondary);
+            opacity: 0.5;
+        }
+
+        .input-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 12px;
+        }
+
+        .input-hint {
+            font-size: 11px;
+            color: var(--text-dim);
+        }
+
+        /* ── Log ── */
+        .log-container {
+            max-height: calc(100vh - 240px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .log-empty {
+            text-align: center;
+            padding: 40px;
+            color: var(--text-dim);
+            font-size: 13px;
+        }
+
+        .log-entry {
+            padding: 9px 14px;
+            border-bottom: 1px solid rgba(42, 42, 60, 0.5);
+            font-size: 12px;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-3px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .log-icon {
+            flex-shrink: 0;
+            width: 18px;
+            text-align: center;
+        }
+
+        .log-text {
+            flex: 1;
+            line-height: 1.5;
+        }
+
+        .log-text .highlight {
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .log-text .file-name {
+            color: var(--info);
+        }
+
+        .log-text .success {
+            color: var(--success);
+        }
+
+        .log-text .error {
+            color: var(--error);
+        }
+
+        .log-time {
+            flex-shrink: 0;
+            font-size: 10px;
+            color: var(--text-dim);
+        }
+
+        /* ── Tasks ── */
+        .task-list {
+            max-height: calc(100vh - 240px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+        }
+
+        .task-item {
+            padding: 12px 14px;
+            border-bottom: 1px solid rgba(42, 42, 60, 0.5);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .task-item:last-child {
+            border-bottom: none;
+        }
+
+        .task-badge {
+            padding: 3px 10px;
+            border-radius: 20px;
+            font-size: 10px;
+            font-weight: 600;
+            text-transform: uppercase;
+            flex-shrink: 0;
+        }
+
+        .badge-running {
+            background: rgba(251, 191, 36, 0.12);
+            color: var(--warning);
+        }
+
+        .badge-complete {
+            background: rgba(74, 222, 128, 0.12);
+            color: var(--success);
+        }
+
+        .badge-error {
+            background: rgba(248, 113, 113, 0.12);
+            color: var(--error);
+        }
+
+        .task-name {
+            flex: 1;
+            font-size: 13px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .task-progress {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        /* ── Test ── */
+        .test-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+        }
+
+        .test-card {
+            background: var(--bg-input);
+            border-radius: 10px;
+            padding: 20px;
+            display: flex;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .test-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 22px;
+        }
+
+        .test-icon.pikpak {
+            background: rgba(124, 92, 252, 0.12);
+        }
+
+        .test-icon.aria2 {
+            background: rgba(96, 165, 250, 0.12);
+        }
+
+        .test-info h3 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 3px;
+        }
+
+        .test-info p {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .test-info p.ok {
+            color: var(--success);
+        }
+
+        .test-info p.fail {
+            color: var(--error);
+        }
+
+        /* ── Settings ── */
+        .settings-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .settings-section {
+            margin-bottom: 24px;
+        }
+
+        .settings-section:last-child {
+            margin-bottom: 0;
+        }
+
+        .settings-section h3 {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--accent);
+            margin-bottom: 12px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .field-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .field-grid.cols-1 {
+            grid-template-columns: 1fr;
+        }
+
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .form-group label {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-input {
+            width: 100%;
+            padding: 8px 10px;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .form-input:focus {
+            border-color: var(--accent);
+        }
+
+        .form-input::placeholder {
+            color: var(--text-dim);
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0;
+            font-size: 13px;
+        }
+
+        .toggle {
+            position: relative;
+            width: 38px;
+            height: 22px;
+            cursor: pointer;
+        }
+
+        .toggle input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 22px;
+            transition: all 0.3s;
+        }
+
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 16px;
+            height: 16px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-secondary);
+            border-radius: 50%;
+            transition: all 0.3s;
+        }
+
+        .toggle input:checked+.toggle-slider {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        .toggle input:checked+.toggle-slider::before {
+            transform: translateX(16px);
+            background: white;
+        }
+
+        .settings-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 10px;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .save-msg {
+            font-size: 12px;
+            color: var(--success);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .save-msg.show {
+            opacity: 1;
+        }
+
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            display: inline-block;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* ── Share File List ── */
+        .share-input-row {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .share-input-row .form-input {
+            flex: 1;
+        }
+
+        .share-input-row .pass-input {
+            width: 140px;
+        }
+
+        .file-list-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .file-list-header label {
+            font-size: 13px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .file-count {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .file-list {
+            max-height: calc(100vh - 320px);
+            overflow-y: auto;
+            scrollbar-width: thin;
+            scrollbar-color: var(--border) transparent;
+        }
+
+        .file-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-bottom: 1px solid rgba(42, 42, 60, 0.4);
+            font-size: 13px;
+            transition: background 0.1s;
+            cursor: pointer;
+        }
+
+        .file-row:hover {
+            background: var(--bg-input);
+        }
+
+        .file-row:last-child {
+            border-bottom: none;
+        }
+
+        .file-row input[type=checkbox] {
+            width: 16px;
+            height: 16px;
+            accent-color: var(--accent);
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        .file-row .file-icon {
+            flex-shrink: 0;
+            width: 20px;
+            text-align: center;
+        }
+
+        .file-row .file-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .file-row .file-size {
+            flex-shrink: 0;
+            font-size: 11px;
+            color: var(--text-secondary);
+            min-width: 70px;
+            text-align: right;
+        }
+
+        .share-actions {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-top: 14px;
+        }
+
+        .selected-info {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        @media (max-width: 768px) {
+            .sidebar {
+                width: 56px;
+            }
+
+            .sidebar-brand h1,
+            .nav-label,
+            .sidebar-footer span {
+                display: none;
+            }
+
+            .sidebar-brand {
+                padding: 16px;
+                justify-content: center;
+            }
+
+            .nav-item {
+                justify-content: center;
+                padding: 11px;
+            }
+
+            .nav-icon {
+                width: auto;
+            }
+
+            .page {
+                padding: 20px 16px;
+            }
+
+            .test-grid,
+            .settings-row,
+            .field-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Sidebar -->
+    <nav class="sidebar">
+        <div class="sidebar-brand">
+            <h1>AutoPikDown</h1>
+        </div>
+        <div class="sidebar-nav">
+            <div class="nav-item active" data-page="magnet" onclick="switchPage('magnet')">
+                <span class="nav-icon">🔗</span><span class="nav-label">添加磁链</span>
+            </div>
+            <div class="nav-item" data-page="share" onclick="switchPage('share')">
+                <span class="nav-icon">📦</span><span class="nav-label">分享链接</span>
+            </div>
+            <div class="nav-item" data-page="progress" onclick="switchPage('progress')">
+                <span class="nav-icon">📊</span><span class="nav-label">处理进度</span>
+            </div>
+            <div class="nav-item" data-page="tasks" onclick="switchPage('tasks')">
+                <span class="nav-icon">📋</span><span class="nav-label">离线任务</span>
+            </div>
+            <div class="nav-item" data-page="test" onclick="switchPage('test')">
+                <span class="nav-icon">🔌</span><span class="nav-label">连接测试</span>
+            </div>
+            <div class="nav-item" data-page="settings" onclick="switchPage('settings')">
+                <span class="nav-icon">⚙️</span><span class="nav-label">设置</span>
+            </div>
+        </div>
+        <div class="sidebar-account" id="sidebarAccount" style="display:none">
+            <div class="account-row">
+                <span class="account-label">PikPak</span>
+                <span class="vip-badge normal" id="vipBadge">普通</span>
+            </div>
+            <div class="storage-bar">
+                <div class="storage-bar-fill" id="storageBar" style="width:0%"></div>
+            </div>
+            <div class="storage-text" id="storageText">--</div>
+        </div>
+        <div class="sidebar-footer">
+            <div class="ws-dot" id="wsDot"></div>
+            <span id="wsLabel">未连接</span>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="main">
+
+        <!-- 添加磁链 -->
+        <div class="page active" id="page-magnet">
+            <div class="page-title"><span class="icon">🔗</span> 添加磁力链接</div>
+            <div class="card">
+                <div class="card-body">
+                    <textarea class="magnet-input" id="magnetInput"
+                        placeholder="粘贴磁力链接，每行一个...&#10;&#10;magnet:?xt=urn:btih:...&#10;magnet:?xt=urn:btih:..."></textarea>
+                    <div class="input-footer">
+                        <span class="input-hint">支持多行批量添加，# 开头的行会被忽略</span>
+                        <button class="btn btn-primary" id="submitBtn" onclick="submitMagnets()">🚀 开始处理</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 分享链接 -->
+        <div class="page" id="page-share">
+            <div class="page-title"><span class="icon">📦</span> PikPak 分享链接</div>
+            <div class="card">
+                <div class="card-body">
+                    <div class="share-input-row">
+                        <input class="form-input" type="text" id="shareLink"
+                            placeholder="粘贴 PikPak 分享链接，如 https://mypikpak.com/s/...">
+                        <input class="form-input pass-input" type="text" id="sharePassCode" placeholder="密码(可选)">
+                        <button class="btn btn-primary btn-sm" id="parseBtn" onclick="parseShareLink()">🔍 解析</button>
+                    </div>
+                    <div id="shareFileArea" style="display:none">
+                        <div class="file-list-header">
+                            <label><input type="checkbox" id="selectAll" onchange="toggleSelectAll()"> 全选</label>
+                            <span class="file-count" id="fileCount"></span>
+                        </div>
+                        <div class="file-list" id="fileList"></div>
+                        <div class="share-actions">
+                            <span class="selected-info" id="selectedInfo">已选 0 个文件</span>
+                            <button class="btn btn-primary btn-sm" id="downloadShareBtn"
+                                onclick="downloadShareFiles()">⬇️ 下载选中文件</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 处理进度 -->
+        <div class="page" id="page-progress">
+            <div class="page-title" style="justify-content:space-between">
+                <span style="display:flex;align-items:center;gap:10px"><span class="icon">📊</span> 处理进度</span>
+                <button class="btn btn-ghost btn-sm" onclick="clearLog()">清空</button>
+            </div>
+            <div class="card">
+                <div class="log-container" id="logContainer">
+                    <div class="log-empty" id="logEmpty">暂无任务</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 离线任务 -->
+        <div class="page" id="page-tasks">
+            <div class="page-title" style="justify-content:space-between">
+                <span style="display:flex;align-items:center;gap:10px"><span class="icon">📋</span> PikPak 离线任务</span>
+                <button class="btn btn-ghost btn-sm" onclick="refreshStatus()">🔄 刷新</button>
+            </div>
+            <div class="card">
+                <div class="task-list" id="taskList">
+                    <div class="log-empty">点击刷新查看任务</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 连接测试 -->
+        <div class="page" id="page-test">
+            <div class="page-title" style="justify-content:space-between">
+                <span style="display:flex;align-items:center;gap:10px"><span class="icon">🔌</span> 连接测试</span>
+                <button class="btn btn-primary btn-sm" id="testBtn" onclick="testConnection()">开始测试</button>
+            </div>
+            <div class="test-grid">
+                <div class="test-card">
+                    <div class="test-icon pikpak">☁️</div>
+                    <div class="test-info">
+                        <h3>PikPak</h3>
+                        <p id="pikpakStatus">未测试</p>
+                    </div>
+                </div>
+                <div class="test-card">
+                    <div class="test-icon aria2">⬇️</div>
+                    <div class="test-info">
+                        <h3>Aria2</h3>
+                        <p id="aria2Status">未测试</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 设置 -->
+        <div class="page" id="page-settings">
+            <div class="page-title"><span class="icon">⚙️</span> 设置</div>
+            <div class="settings-row">
+                <!-- PikPak -->
+                <div class="card">
+                    <div class="card-body">
+                        <div class="settings-section">
+                            <h3>☁️ PikPak</h3>
+                            <div class="field-grid">
+                                <div class="form-group"><label>用户名（邮箱）</label><input class="form-input" type="text"
+                                        id="cfgPikpakUsername" placeholder="email@example.com"></div>
+                                <div class="form-group"><label>密码</label><input class="form-input" type="password"
+                                        id="cfgPikpakPassword" placeholder="密码"></div>
+                            </div>
+                            <div class="field-grid cols-1" style="margin-top:12px">
+                                <div class="form-group"><label>离线保存目录</label><input class="form-input" type="text"
+                                        id="cfgPikpakSaveDir" placeholder="/"></div>
+                            </div>
+
+                            <div class="toggle-row" style="margin-top:8px">
+                                <span>推送后删除 PikPak 文件</span>
+                                <label class="toggle"><input type="checkbox" id="cfgPikpakDelete"><span
+                                        class="toggle-slider"></span></label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Aria2 + Task -->
+                <div style="display:flex;flex-direction:column;gap:16px">
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="settings-section">
+                                <h3>⬇️ Aria2</h3>
+                                <div class="field-grid">
+                                    <div class="form-group"><label>RPC 地址</label><input class="form-input" type="text"
+                                            id="cfgAria2Url" placeholder="http://localhost:6800/jsonrpc"></div>
+                                    <div class="form-group"><label>RPC 密钥</label><input class="form-input"
+                                            type="password" id="cfgAria2Secret" placeholder="留空=无密钥"></div>
+                                </div>
+                                <div class="field-grid cols-1" style="margin-top:12px">
+                                    <div class="form-group"><label>下载目录（空=Aria2 默认）</label><input class="form-input"
+                                            type="text" id="cfgAria2Dir" placeholder="/downloads"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-body">
+                            <div class="settings-section">
+                                <h3>🔧 任务</h3>
+                                <div class="field-grid">
+                                    <div class="form-group"><label>轮询间隔（秒）</label><input class="form-input"
+                                            type="number" id="cfgPollInterval" placeholder="3" min="1"></div>
+                                    <div class="form-group"><label>最大等待（秒）</label><input class="form-input"
+                                            type="number" id="cfgMaxWait" placeholder="3600" min="60"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="settings-actions">
+                <span class="save-msg" id="saveMsg">✓ 已保存</span>
+                <button class="btn btn-ghost btn-sm" onclick="loadConfig()">重新加载</button>
+                <button class="btn btn-primary btn-sm" id="saveBtn" onclick="saveConfig()">💾 保存配置</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ── Navigation ──
+        function switchPage(name) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('page-' + name).classList.add('active');
+            document.querySelector(`.nav-item[data-page="${name}"]`).classList.add('active');
+            if (name === 'tasks') refreshStatus();
+        }
+
+        // ── WebSocket ──
+        let ws = null;
+        function connectWS() {
+            const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            ws = new WebSocket(`${proto}//${location.host}/ws`);
+            ws.onopen = () => { document.getElementById('wsDot').classList.add('connected'); document.getElementById('wsLabel').textContent = '已连接'; };
+            ws.onclose = () => { document.getElementById('wsDot').classList.remove('connected'); document.getElementById('wsLabel').textContent = '已断开'; setTimeout(connectWS, 3000); };
+            ws.onmessage = (e) => handleWSMessage(JSON.parse(e.data));
+        }
+
+        function handleWSMessage(msg) {
+            const icons = { task_start: '🔄', task_added: '📥', task_status: '⏳', task_error: '❌', files_found: '📄', aria2_done: '✅', task_done: '🎉', all_done: '🏁', error: '💥' };
+            const icon = icons[msg.type] || '📌';
+            let text = '';
+            switch (msg.type) {
+                case 'task_start': text = `<span class="highlight">[${msg.index}/${msg.total}]</span> 开始处理: ${msg.magnet}`; break;
+                case 'task_added': text = `<span class="highlight">[${msg.index}]</span> 离线任务已添加: <span class="file-name">${msg.file_name}</span>`; break;
+                case 'task_status': text = `<span class="highlight">[${msg.index}]</span> 状态: ${msg.status}`; break;
+                case 'task_error': text = `<span class="highlight">[${msg.index}]</span> <span class="error">${msg.message}</span>`; break;
+                case 'files_found': text = `<span class="highlight">[${msg.index}]</span> 找到 ${msg.files.length} 个文件: <span class="file-name">${msg.files.join(', ')}</span>`; break;
+                case 'aria2_done': text = `<span class="highlight">[${msg.index}]</span> <span class="success">已推送 ${msg.success_count}/${msg.total_count} 到 Aria2</span>`; break;
+                case 'task_done': text = `<span class="highlight">[${msg.index}]</span> <span class="success">✓ ${msg.file_name} 完成</span>`; break;
+                case 'all_done':
+                    text = `<span class="success">全部 ${msg.total} 个磁链处理完毕！</span>`;
+                    document.getElementById('submitBtn').disabled = false;
+                    document.getElementById('submitBtn').innerHTML = '🚀 开始处理';
+                    break;
+                case 'error':
+                    text = `<span class="error">${msg.message}</span>`;
+                    document.getElementById('submitBtn').disabled = false;
+                    document.getElementById('submitBtn').innerHTML = '🚀 开始处理';
+                    break;
+            }
+            addLogEntry(icon, text);
+            // Auto-switch to progress page on new messages
+            if (!document.getElementById('page-progress').classList.contains('active') && msg.type === 'task_start') {
+                switchPage('progress');
+            }
+        }
+
+        function addLogEntry(icon, text) {
+            const container = document.getElementById('logContainer');
+            const empty = document.getElementById('logEmpty');
+            if (empty) empty.remove();
+            const now = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span class="log-icon">${icon}</span><span class="log-text">${text}</span><span class="log-time">${now}</span>`;
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearLog() {
+            document.getElementById('logContainer').innerHTML = '<div class="log-empty" id="logEmpty">暂无任务</div>';
+        }
+
+        // ── API ──
+        async function submitMagnets() {
+            const input = document.getElementById('magnetInput');
+            const text = input.value.trim();
+            if (!text) return;
+            const btn = document.getElementById('submitBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 处理中...';
+            try {
+                const resp = await fetch('/api/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ magnets: text }) });
+                const data = await resp.json();
+                if (!resp.ok) { addLogEntry('❌', `<span class="error">${data.error}</span>`); btn.disabled = false; btn.innerHTML = '🚀 开始处理'; return; }
+                addLogEntry('📨', data.message);
+                input.value = '';
+                switchPage('progress');
+            } catch (e) { addLogEntry('💥', `<span class="error">请求失败: ${e.message}</span>`); btn.disabled = false; btn.innerHTML = '🚀 开始处理'; }
+        }
+
+        async function refreshStatus() {
+            const container = document.getElementById('taskList');
+            container.innerHTML = '<div class="log-empty"><span class="spinner"></span> 加载中...</div>';
+            try {
+                const resp = await fetch('/api/status');
+                const data = await resp.json();
+                if (!resp.ok) { container.innerHTML = `<div class="log-empty" style="color:var(--error)">${data.error}</div>`; return; }
+                if (!data.tasks || !data.tasks.length) { container.innerHTML = '<div class="log-empty">没有离线任务</div>'; return; }
+                container.innerHTML = data.tasks.map(t => {
+                    let bc = 'badge-running';
+                    let label = t.phase.replace('PHASE_TYPE_', '');
+                    if (t.phase.includes('COMPLETE') || t.progress == 100) {
+                        bc = 'badge-complete'; label = 'COMPLETE';
+                    } else if (t.phase.includes('ERROR')) {
+                        // 有 message 时显示具体原因
+                        bc = 'badge-error';
+                    }
+                    const extra = t.message ? `<span style="font-size:11px;color:var(--text-dim);margin-left:8px">${t.message}</span>` : '';
+                    return `<div class="task-item"><span class="task-badge ${bc}">${label}</span><span class="task-name" title="${t.name}">${t.name}${extra}</span><span class="task-progress">${t.progress}%</span></div>`;
+                }).join('');
+            } catch (e) { container.innerHTML = `<div class="log-empty" style="color:var(--error)">请求失败: ${e.message}</div>`; }
+        }
+
+        async function testConnection() {
+            const btn = document.getElementById('testBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 测试中...';
+            const pp = document.getElementById('pikpakStatus'), a2 = document.getElementById('aria2Status');
+            pp.textContent = '测试中...'; pp.className = ''; a2.textContent = '测试中...'; a2.className = '';
+            try {
+                const resp = await fetch('/api/test', { method: 'POST' });
+                const data = await resp.json();
+                if (data.pikpak) { pp.textContent = data.pikpak.ok ? `✓ ${data.pikpak.message}` : `✗ ${data.pikpak.message}`; pp.className = data.pikpak.ok ? 'ok' : 'fail'; }
+                if (data.aria2) { a2.textContent = data.aria2.ok ? `✓ ${data.aria2.message}` : `✗ ${data.aria2.message}`; a2.className = data.aria2.ok ? 'ok' : 'fail'; }
+            } catch (e) { pp.textContent = '✗ 请求失败'; pp.className = 'fail'; a2.textContent = '✗ 请求失败'; a2.className = 'fail'; }
+            btn.disabled = false; btn.innerHTML = '开始测试';
+        }
+
+        // ── Settings ──
+        async function loadConfig() {
+            try {
+                const resp = await fetch('/api/config');
+                const cfg = await resp.json();
+                document.getElementById('cfgPikpakUsername').value = cfg.pikpak?.username || '';
+                document.getElementById('cfgPikpakPassword').value = cfg.pikpak?.password || '';
+                document.getElementById('cfgPikpakSaveDir').value = cfg.pikpak?.save_dir || '/';
+                document.getElementById('cfgPikpakDelete').checked = cfg.pikpak?.delete_after_download || false;
+                document.getElementById('cfgAria2Url').value = cfg.aria2?.rpc_url || '';
+                document.getElementById('cfgAria2Secret').value = cfg.aria2?.rpc_secret || '';
+                document.getElementById('cfgAria2Dir').value = cfg.aria2?.download_dir || '';
+                document.getElementById('cfgPollInterval').value = cfg.task?.poll_interval || 3;
+                document.getElementById('cfgMaxWait').value = cfg.task?.max_wait_time || 3600;
+            } catch (e) { console.error('加载配置失败:', e); }
+        }
+
+        async function saveConfig() {
+            const btn = document.getElementById('saveBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 保存...';
+            const cfg = {
+                pikpak: { username: document.getElementById('cfgPikpakUsername').value, password: document.getElementById('cfgPikpakPassword').value, save_dir: document.getElementById('cfgPikpakSaveDir').value || '/', delete_after_download: document.getElementById('cfgPikpakDelete').checked },
+                aria2: { rpc_url: document.getElementById('cfgAria2Url').value, rpc_secret: document.getElementById('cfgAria2Secret').value, download_dir: document.getElementById('cfgAria2Dir').value },
+                task: { poll_interval: parseInt(document.getElementById('cfgPollInterval').value) || 3, max_wait_time: parseInt(document.getElementById('cfgMaxWait').value) || 3600 },
+            };
+            try {
+                const resp = await fetch('/api/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cfg) });
+                if (resp.ok) { const msg = document.getElementById('saveMsg'); msg.classList.add('show'); setTimeout(() => msg.classList.remove('show'), 2500); }
+            } catch (e) { alert('保存失败: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = '💾 保存配置';
+        }
+
+
+
+        // ── Share Link ──
+        let shareData = { share_id: '', pass_code_token: '', files: [] };
+
+        async function parseShareLink() {
+            const link = document.getElementById('shareLink').value.trim();
+            if (!link) return;
+            const btn = document.getElementById('parseBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 解析中...';
+            const area = document.getElementById('shareFileArea');
+            area.style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/share/list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        share_link: link,
+                        pass_code: document.getElementById('sharePassCode').value.trim()
+                    })
+                });
+                const data = await resp.json();
+                if (!resp.ok) { alert(data.error); return; }
+
+                shareData = data;
+                renderFileList(data.files);
+                area.style.display = 'block';
+            } catch (e) { alert('解析失败: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = '🔍 解析';
+        }
+
+        function renderFileList(files) {
+            const list = document.getElementById('fileList');
+            document.getElementById('fileCount').textContent = `共 ${files.length} 个文件`;
+            document.getElementById('selectAll').checked = false;
+
+            const iconMap = {
+                'video': '🎬', 'audio': '🎵', 'image': '🖼️',
+                'text': '📄', 'application/zip': '📦', 'application/x-rar': '📦',
+            };
+
+            list.innerHTML = files.map((f, i) => {
+                let icon = '📄';
+                for (const [key, val] of Object.entries(iconMap)) {
+                    if (f.file_type && f.file_type.includes(key)) { icon = val; break; }
+                }
+                return `<div class="file-row" onclick="toggleFileCheck(${i}, event)">
+                    <input type="checkbox" data-index="${i}" onclick="event.stopPropagation(); updateSelectedInfo()">
+                    <span class="file-icon">${icon}</span>
+                    <span class="file-name" title="${f.path || f.name}">${f.name}</span>
+                    <span class="file-size">${f.size_str || ''}</span>
+                </div>`;
+            }).join('');
+            updateSelectedInfo();
+        }
+
+        function toggleFileCheck(index, event) {
+            const cb = document.querySelector(`#fileList input[data-index="${index}"]`);
+            if (cb) { cb.checked = !cb.checked; updateSelectedInfo(); }
+        }
+
+        function toggleSelectAll() {
+            const checked = document.getElementById('selectAll').checked;
+            document.querySelectorAll('#fileList input[type=checkbox]').forEach(cb => cb.checked = checked);
+            updateSelectedInfo();
+        }
+
+        function updateSelectedInfo() {
+            const checked = document.querySelectorAll('#fileList input[type=checkbox]:checked');
+            const total = document.querySelectorAll('#fileList input[type=checkbox]');
+            document.getElementById('selectedInfo').textContent = `已选 ${checked.length} / ${total.length} 个文件`;
+        }
+
+        async function downloadShareFiles() {
+            const checkedBoxes = document.querySelectorAll('#fileList input[type=checkbox]:checked');
+            if (!checkedBoxes.length) { alert('请先选择文件'); return; }
+
+            const fileIds = Array.from(checkedBoxes).map(cb => shareData.files[cb.dataset.index].id);
+            const btn = document.getElementById('downloadShareBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 处理中...';
+
+            try {
+                const resp = await fetch('/api/share/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        share_id: shareData.share_id,
+                        file_ids: fileIds,
+                        pass_code_token: shareData.pass_code_token,
+                    })
+                });
+                const data = await resp.json();
+                if (!resp.ok) { alert(data.error); }
+                else { addLogEntry('📨', data.message); switchPage('progress'); }
+            } catch (e) { alert('请求失败: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = '⬇️ 下载选中文件';
+        }
+
+        async function checkVipStatus() {
+            try {
+                const resp = await fetch('/api/vip');
+                const data = await resp.json();
+                const badge = document.getElementById('vipBadge');
+                if (data.is_vip) {
+                    badge.className = 'vip-badge premium';
+                    badge.textContent = '会员';
+                } else {
+                    badge.className = 'vip-badge normal';
+                    badge.textContent = '普通';
+                }
+
+                // 存储空间
+                const fmtSize = (bytes) => {
+                    if (bytes <= 0) return '0 GB';
+                    const gb = bytes / (1024 ** 3);
+                    return gb >= 1024 ? (gb / 1024).toFixed(1) + ' TB' : gb.toFixed(1) + ' GB';
+                };
+                if (data.quota_limit > 0) {
+                    const pct = Math.min((data.quota_usage / data.quota_limit) * 100, 100).toFixed(1);
+                    document.getElementById('storageBar').style.width = pct + '%';
+                    document.getElementById('storageText').textContent =
+                        `${fmtSize(data.quota_usage)} / ${fmtSize(data.quota_limit)}`;
+                    // 空间不足时变红
+                    if (parseFloat(pct) > 90) {
+                        document.getElementById('storageBar').style.background = 'linear-gradient(90deg, #f87171, #ef4444)';
+                    }
+                }
+
+                document.getElementById('sidebarAccount').style.display = '';
+            } catch (e) { /* 忽略 */ }
+        }
+
+        connectWS();
+        loadConfig();
+        checkVipStatus();
+    </script>
+</body>
+
+</html>

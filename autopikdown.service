@@ -1,0 +1,14 @@
+[Unit]
+Description=AutoPikDown Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/AutoPikDown
+ExecStart=/opt/AutoPikDown/venv/bin/python /opt/AutoPikDown/main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

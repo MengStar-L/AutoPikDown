@@ -1,0 +1,14 @@
+# Token 文件（含敏感信息）
+pikpak_token.json
+
+# 配置文件（含密码）
+config.yaml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# IDE
+.vscode/
+.idea/
