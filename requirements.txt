@@ -2,3 +2,4 @@ pikpakapi
 httpx
 pyyaml
 aiohttp
+feedparser

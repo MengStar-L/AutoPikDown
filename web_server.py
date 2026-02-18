@@ -3,7 +3,10 @@
 import asyncio
 import json
 import os
+import re
 
+import feedparser
+import httpx
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -35,6 +38,8 @@ class WebServer:
         self.app.router.add_post("/api/config", self._api_save_config)
         self.app.router.add_post("/api/share/list", self._api_share_list)
         self.app.router.add_post("/api/share/download", self._api_share_download)
+        self.app.router.add_post("/api/rss/parse", self._api_rss_parse)
+        self.app.router.add_post("/api/rss/download", self._api_rss_download)
         self.app.router.add_get("/api/vip", self._api_vip_info)
 
         self.app.router.add_get("/ws", self._ws_handler)
@@ -231,6 +236,109 @@ class WebServer:
             return web.json_response({"error": str(e)}, status=500)
 
 
+    # ── RSS 订阅 API ──
+
+    async def _api_rss_parse(self, request: web.Request) -> web.Response:
+        """解析 RSS 链接，返回条目列表"""
+        try:
+            body = await request.json()
+            rss_url = body.get("url", "").strip()
+            if not rss_url:
+                return web.json_response({"error": "请输入 RSS 链接"}, status=400)
+
+            # 下载 RSS 内容
+            async with httpx.AsyncClient(follow_redirects=True, timeout=15.0) as client:
+                resp = await client.get(rss_url, headers={"User-Agent": "AutoPikDown/1.0"})
+                resp.raise_for_status()
+                raw = resp.text
+
+            feed = feedparser.parse(raw)
+            if feed.bozo and not feed.entries:
+                return web.json_response({"error": f"RSS 解析失败: {feed.bozo_exception}"}, status=400)
+
+            items = []
+            magnet_re = re.compile(r"magnet:\?xt=urn:[^\s\"'<>]+", re.IGNORECASE)
+
+            for entry in feed.entries:
+                title = entry.get("title", "未知")
+                published = entry.get("published", entry.get("updated", ""))
+                link = entry.get("link", "")
+
+                # 提取磁力链接：enclosure > link > 正文
+                magnet = ""
+                torrent = ""
+
+                # 1. 检查 enclosures
+                for enc in entry.get("enclosures", []):
+                    href = enc.get("href", "")
+                    if href.startswith("magnet:"):
+                        magnet = href
+                        break
+                    elif href.endswith(".torrent"):
+                        torrent = href
+
+                # 2. 检查 link
+                if not magnet and link.startswith("magnet:"):
+                    magnet = link
+                elif not torrent and link.endswith(".torrent"):
+                    torrent = link
+
+                # 3. 检查 links 列表
+                if not magnet:
+                    for lnk in entry.get("links", []):
+                        href = lnk.get("href", "")
+                        if href.startswith("magnet:"):
+                            magnet = href
+                            break
+                        elif href.endswith(".torrent") and not torrent:
+                            torrent = href
+
+                # 4. 正文中匹配
+                if not magnet:
+                    content = entry.get("summary", "") + entry.get("description", "")
+                    m = magnet_re.search(content)
+                    if m:
+                        magnet = m.group(0)
+
+                download_url = magnet or torrent
+                if not download_url:
+                    continue
+
+                items.append({
+                    "title": title,
+                    "download_url": download_url,
+                    "type": "magnet" if magnet else "torrent",
+                    "published": published,
+                    "link": link if not link.startswith("magnet:") else "",
+                })
+
+            return web.json_response({
+                "title": feed.feed.get("title", "RSS Feed"),
+                "count": len(items),
+                "items": items,
+            })
+        except httpx.HTTPError as e:
+            return web.json_response({"error": f"下载 RSS 失败: {e}"}, status=400)
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_rss_download(self, request: web.Request) -> web.Response:
+        """下载选中的 RSS 条目（磁力/种子链接）"""
+        try:
+            body = await request.json()
+            urls = body.get("urls", [])
+            if not urls:
+                return web.json_response({"error": "没有选中的链接"}, status=400)
+
+            # 直接复用磁链处理流程
+            asyncio.create_task(self._process_magnets(urls))
+
+            return web.json_response({
+                "message": f"已提交 {len(urls)} 个链接，处理中...",
+                "count": len(urls),
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
 
     # ── 分享链接 API ──
 
