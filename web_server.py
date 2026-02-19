@@ -32,6 +32,8 @@ class WebServer:
         static_dir = Path(__file__).parent / "static"
         self.app.router.add_get("/", self._index)
         self.app.router.add_post("/api/add", self._api_add)
+        self.app.router.add_post("/api/magnet/parse", self._api_magnet_parse)
+        self.app.router.add_post("/api/magnet/download", self._api_magnet_download)
         self.app.router.add_get("/api/status", self._api_status)
         self.app.router.add_post("/api/test", self._api_test)
         self.app.router.add_get("/api/config", self._api_get_config)
@@ -129,7 +131,7 @@ class WebServer:
         return web.FileResponse(Path(__file__).parent / "static" / "index.html")
 
     async def _api_add(self, request: web.Request) -> web.Response:
-        """添加磁链"""
+        """添加磁链（批量全量下载）"""
         data = await request.json()
         magnets_text = data.get("magnets", "")
         magnets = [m.strip() for m in magnets_text.strip().splitlines() if m.strip() and not m.strip().startswith("#")]
@@ -144,6 +146,174 @@ class WebServer:
             "message": f"已提交 {len(magnets)} 个磁链，处理中...",
             "count": len(magnets),
         })
+
+    async def _api_magnet_parse(self, request: web.Request) -> web.Response:
+        """解析单个磁链：添加离线任务 → 等待完成 → 返回文件树"""
+        try:
+            body = await request.json()
+            magnet = body.get("magnet", "").strip()
+            if not magnet:
+                return web.json_response({"error": "请输入磁力链接"}, status=400)
+
+            pikpak, _ = await self._ensure_clients()
+
+            # 1. 添加离线任务
+            task_info = await pikpak.add_offline_task(magnet)
+            task_id = task_info["task_id"]
+            file_id = task_info["file_id"]
+            file_name = task_info["file_name"]
+
+            if not task_id:
+                return web.json_response({"error": "添加离线任务失败"}, status=500)
+
+            # 2. 等待离线完成
+            from pikpakapi.enums import DownloadStatus
+            import time
+
+            task_cfg = self.config.get("task", {})
+            poll_interval = task_cfg.get("poll_interval", 3)
+            max_wait_time = task_cfg.get("max_wait_time", 3600)
+            start_time = time.time()
+
+            while True:
+                elapsed = time.time() - start_time
+                if elapsed > max_wait_time:
+                    return web.json_response({"error": f"等待超时 ({max_wait_time}s)"}, status=408)
+
+                try:
+                    status = await pikpak.client.get_task_status(task_id, file_id)
+                except Exception:
+                    await asyncio.sleep(poll_interval)
+                    continue
+
+                if status == DownloadStatus.done:
+                    break
+                elif status in (DownloadStatus.error, DownloadStatus.not_found):
+                    return web.json_response({"error": f"离线失败 ({status.value})"}, status=500)
+
+                await asyncio.sleep(poll_interval)
+
+            # 3. 获取文件树
+            file_tree = await pikpak.list_file_tree(file_id)
+
+            # 格式化文件大小
+            for f in file_tree:
+                f["size_str"] = self._format_size(f.get("size", 0))
+
+            return web.json_response({
+                "file_id": file_id,
+                "file_name": file_name,
+                "files": file_tree,
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _api_magnet_download(self, request: web.Request) -> web.Response:
+        """下载磁链中选中的文件"""
+        try:
+            body = await request.json()
+            file_id = body.get("file_id", "")
+            selected_ids = body.get("selected_ids", [])
+            keep_structure = body.get("keep_structure", True)
+
+            if not file_id:
+                return web.json_response({"error": "缺少 file_id"}, status=400)
+
+            asyncio.create_task(self._process_magnet_selected(
+                file_id, selected_ids, keep_structure
+            ))
+
+            return web.json_response({
+                "message": f"开始下载 {len(selected_ids)} 个文件"
+            })
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=500)
+
+    async def _process_magnet_selected(
+        self, root_file_id: str, selected_ids: List[str], keep_structure: bool = True
+    ):
+        """后台处理磁链选中文件的下载"""
+        try:
+            pikpak, aria2 = await self._ensure_clients()
+            pikpak_cfg = self.config.get("pikpak", {})
+            delete_after = pikpak_cfg.get("delete_after_download", False)
+
+            await self._broadcast({
+                "type": "task_start",
+                "index": 1,
+                "total": 1,
+                "magnet": f"磁链选择下载 ({len(selected_ids)} 个文件)",
+            })
+
+            # 获取所有文件的下载链接
+            await self._broadcast({"type": "task_status", "index": 1, "status": "获取下载链接..."})
+            all_files = await pikpak.get_download_urls(root_file_id)
+
+            if not all_files:
+                await self._broadcast({"type": "task_error", "index": 1, "message": "未找到可下载的文件"})
+                return
+
+            # 只保留选中的文件
+            if selected_ids:
+                selected_set = set(selected_ids)
+                files = [f for f in all_files if f["file_id"] in selected_set]
+            else:
+                files = all_files  # 未指定则全部下载
+
+            if not files:
+                await self._broadcast({"type": "task_error", "index": 1, "message": "选中的文件不存在"})
+                return
+
+            await self._broadcast({
+                "type": "files_found",
+                "index": 1,
+                "files": [f["name"] for f in files],
+            })
+
+            # 推送到 Aria2（根据 keep_structure 决定是否带子目录）
+            import posixpath
+            tasks_to_add = []
+            for f in files:
+                path = f.get("path", f["name"])
+                parent_dir = posixpath.dirname(path) if keep_structure else None
+                tasks_to_add.append({
+                    "url": f["url"],
+                    "name": f["name"],
+                    "subdir": parent_dir if parent_dir else None,
+                })
+
+            gids = await aria2.add_uris_batch(tasks_to_add)
+
+            await self._broadcast({
+                "type": "aria2_done",
+                "index": 1,
+                "success_count": len(gids),
+                "total_count": len(files),
+            })
+
+            # 可选清理
+            if delete_after:
+                try:
+                    await pikpak.delete_files([root_file_id])
+                except Exception:
+                    pass
+
+            await self._broadcast({"type": "all_done", "total": 1})
+
+        except Exception as e:
+            await self._broadcast({"type": "error", "message": f"选择下载失败: {e}"})
+
+    @staticmethod
+    def _format_size(size: int) -> str:
+        """格式化文件大小"""
+        if size >= 1073741824:
+            return f"{size / 1073741824:.1f} GB"
+        elif size >= 1048576:
+            return f"{size / 1048576:.1f} MB"
+        elif size >= 1024:
+            return f"{size / 1024:.1f} KB"
+        else:
+            return f"{size} B"
 
     async def _api_status(self, request: web.Request) -> web.Response:
         """获取离线任务状态"""
@@ -380,12 +550,15 @@ class WebServer:
             share_id = body.get("share_id", "")
             file_ids = body.get("file_ids", [])
             pass_code_token = body.get("pass_code_token", "")
+            keep_structure = body.get("keep_structure", True)
+            # 前端传入的文件路径映射 {file_id: path}
+            file_paths = body.get("file_paths", {})
 
             if not share_id or not file_ids:
                 return web.json_response({"error": "缺少参数"}, status=400)
 
             asyncio.create_task(self._process_share_download(
-                share_id, file_ids, pass_code_token
+                share_id, file_ids, pass_code_token, keep_structure, file_paths
             ))
 
             return web.json_response({
@@ -395,7 +568,8 @@ class WebServer:
             return web.json_response({"error": str(e)}, status=500)
 
     async def _process_share_download(
-        self, share_id: str, file_ids: List[str], pass_code_token: str
+        self, share_id: str, file_ids: List[str], pass_code_token: str,
+        keep_structure: bool = True, file_paths: Dict[str, str] = None,
     ):
         """后台处理分享文件下载"""
         try:
@@ -452,10 +626,24 @@ class WebServer:
                     continue
 
                 try:
+                    import posixpath
                     for url_info in urls:
                         all_file_ids.append(url_info["file_id"])
-                        # 设置 10秒 超时推送 Aria2
-                        gid = await asyncio.wait_for(self._aria2.add_uri(url_info["url"], url_info["name"]), timeout=10.0)
+                        # 计算子目录
+                        subdir = None
+                        if keep_structure:
+                            path = url_info.get("path", "")
+                            if path:
+                                # 去掉第一层路径（PikPak 保存文件夹如 "Pack From Shared"）
+                                parts = path.split("/")
+                                if len(parts) > 2:
+                                    # 例: "Pack From Shared/FolderA/file.mp4" → "FolderA"
+                                    subdir = "/".join(parts[1:-1]) or None
+                                # 只有两层如 "Pack From Shared/file.mp4" → 无需子目录
+                        gid = await asyncio.wait_for(
+                            self._aria2.add_uri(url_info["url"], url_info["name"], subdir=subdir),
+                            timeout=10.0
+                        )
                         if gid:
                             success_count += 1
                             await self._broadcast({
@@ -635,9 +823,18 @@ class WebServer:
                 "files": [f["name"] for f in files],
             })
 
-            # 4. 推送到 Aria2
+            # 4. 推送到 Aria2（带子目录信息保留文件夹结构）
             try:
-                tasks_to_add = [{"url": f["url"], "name": f["name"]} for f in files]
+                import posixpath
+                tasks_to_add = []
+                for f in files:
+                    path = f.get("path", f["name"])
+                    parent_dir = posixpath.dirname(path)
+                    tasks_to_add.append({
+                        "url": f["url"],
+                        "name": f["name"],
+                        "subdir": parent_dir if parent_dir else None,
+                    })
                 gids = await aria2.add_uris_batch(tasks_to_add)
 
                 await self._broadcast({

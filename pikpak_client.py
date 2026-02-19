@@ -200,10 +200,10 @@ class PikPakClient:
     async def get_download_urls(self, file_id: str) -> List[Dict[str, str]]:
         """
         获取文件的下载链接。
-        如果 file_id 对应的是文件夹，会递归获取内部所有文件的链接。
+        如果 file_id 对应的是文件夹，会递归获取内部所有文件的链接（带路径前缀）。
 
         Returns:
-            [{"name": "文件名", "url": "下载链接", "file_id": "文件ID"}, ...]
+            [{"name": "文件名", "url": "下载链接", "file_id": "文件ID", "path": "相对路径"}, ...]
         """
         try:
             info = await self.client.get_download_url(file_id)
@@ -214,7 +214,8 @@ class PikPakClient:
         # 如果是文件夹，递归获取子文件
         kind = info.get("kind", "")
         if kind == "drive#folder":
-            return await self._list_folder_files(file_id)
+            folder_name = info.get("name", "")
+            return await self._list_folder_files(file_id, prefix=folder_name)
 
         # 单个文件
         url = info.get("web_content_link", "")
@@ -228,13 +229,15 @@ class PikPakClient:
                 url = link.get("url", "")
 
         if url:
-            return [{"name": name, "url": url, "file_id": file_id}]
+            return [{"name": name, "url": url, "file_id": file_id, "path": name}]
         else:
             print(f"[PikPak] ⚠ 无法获取下载链接: {name}")
             return []
 
-    async def _list_folder_files(self, folder_id: str) -> List[Dict[str, str]]:
-        """递归列出文件夹内所有文件的下载链接"""
+    async def _list_folder_files(
+        self, folder_id: str, prefix: str = ""
+    ) -> List[Dict[str, str]]:
+        """递归列出文件夹内所有文件的下载链接（带路径前缀）"""
         results = []
         next_page_token = None
 
@@ -248,26 +251,108 @@ class PikPakClient:
             for f in files:
                 kind = f.get("kind", "")
                 fid = f.get("id", "")
+                name = f.get("name", "未知文件")
+                full_path = f"{prefix}/{name}" if prefix else name
 
                 if kind == "drive#folder":
                     # 递归进入子文件夹
-                    sub_files = await self._list_folder_files(fid)
+                    sub_files = await self._list_folder_files(fid, prefix=full_path)
                     results.extend(sub_files)
                 else:
                     url = f.get("web_content_link", "")
-                    name = f.get("name", "未知文件")
                     if url:
-                        results.append({"name": name, "url": url, "file_id": fid})
+                        results.append({
+                            "name": name, "url": url,
+                            "file_id": fid, "path": full_path,
+                        })
                     else:
                         # 需要单独请求下载链接
-                        urls = await self.get_download_urls(fid)
-                        results.extend(urls)
+                        try:
+                            info = await self.client.get_download_url(fid)
+                            dl_url = info.get("web_content_link", "")
+                            if not dl_url:
+                                medias = info.get("medias", [])
+                                if medias:
+                                    dl_url = medias[0].get("link", {}).get("url", "")
+                            if dl_url:
+                                results.append({
+                                    "name": name, "url": dl_url,
+                                    "file_id": fid, "path": full_path,
+                                })
+                        except Exception:
+                            print(f"[PikPak] ⚠ 无法获取下载链接: {full_path}")
 
             next_page_token = resp.get("next_page_token")
             if not next_page_token:
                 break
 
         return results
+
+    async def list_file_tree(self, file_id: str) -> List[Dict[str, Any]]:
+        """
+        列出文件树（不获取下载链接），供前端展示。
+
+        Returns:
+            [{"id", "name", "path", "size", "kind", "file_type"}, ...]
+        """
+        try:
+            info = await self.client.get_download_url(file_id)
+        except Exception as e:
+            print(f"[PikPak] 获取文件信息失败: {e}")
+            raise
+
+        kind = info.get("kind", "")
+        name = info.get("name", "未知")
+
+        if kind != "drive#folder":
+            # 单个文件
+            return [{
+                "id": file_id,
+                "name": name,
+                "path": name,
+                "size": int(info.get("size", 0)),
+                "kind": kind,
+                "file_type": info.get("mime_type", ""),
+            }]
+
+        # 文件夹：递归列出
+        results: List[Dict[str, Any]] = []
+        await self._collect_file_tree(file_id, results, prefix=name)
+        return results
+
+    async def _collect_file_tree(
+        self, folder_id: str, results: List[Dict], prefix: str = ""
+    ):
+        """递归收集文件树（仅元信息，不获取下载链接）"""
+        next_page_token = None
+
+        while True:
+            resp = await self.client.file_list(
+                parent_id=folder_id,
+                next_page_token=next_page_token,
+            )
+
+            for f in resp.get("files", []):
+                fid = f.get("id", "")
+                name = f.get("name", "")
+                kind = f.get("kind", "")
+                full_path = f"{prefix}/{name}" if prefix else name
+
+                results.append({
+                    "id": fid,
+                    "name": name,
+                    "path": full_path,
+                    "size": int(f.get("size", 0)),
+                    "kind": kind,
+                    "file_type": f.get("mime_type", ""),
+                })
+
+                if kind == "drive#folder":
+                    await self._collect_file_tree(fid, results, prefix=full_path)
+
+            next_page_token = resp.get("next_page_token")
+            if not next_page_token:
+                break
 
     async def delete_files(self, file_ids: List[str]):
         """永久删除文件（不经回收站）"""

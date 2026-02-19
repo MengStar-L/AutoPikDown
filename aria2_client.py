@@ -14,6 +14,7 @@ class Aria2Client:
         self.rpc_url = rpc_url
         self.rpc_secret = rpc_secret
         self.download_dir = download_dir
+        self._server_dir: str | None = None  # 缓存 Aria2 服务器默认目录
 
     def _build_request(self, method: str, params: List[Any] = None) -> Dict[str, Any]:
         """构建 JSON-RPC 请求体"""
@@ -51,6 +52,20 @@ class Aria2Client:
 
         return data.get("result")
 
+    async def _get_base_dir(self) -> str:
+        """获取基准下载目录：优先用配置值，否则查询 Aria2 服务器默认 dir"""
+        if self.download_dir:
+            return self.download_dir
+        if self._server_dir is not None:
+            return self._server_dir
+        try:
+            opts = await self._call("aria2.getGlobalOption")
+            self._server_dir = opts.get("dir", "")
+            print(f"[Aria2] 服务器默认下载目录: {self._server_dir}")
+        except Exception:
+            self._server_dir = ""
+        return self._server_dir
+
     async def test_connection(self) -> str:
         """
         测试 Aria2 连接，返回版本号
@@ -67,6 +82,7 @@ class Aria2Client:
         self,
         url: str,
         filename: Optional[str] = None,
+        subdir: Optional[str] = None,
         extra_options: Optional[Dict[str, str]] = None,
     ) -> str:
         """
@@ -75,6 +91,7 @@ class Aria2Client:
         Args:
             url: 下载链接
             filename: 文件名（可选）
+            subdir: 子目录（可选），用于保留文件夹嵌套结构
             extra_options: 额外的 Aria2 选项
 
         Returns:
@@ -82,8 +99,14 @@ class Aria2Client:
         """
         options = {}
 
-        if self.download_dir:
-            options["dir"] = self.download_dir
+        base_dir = await self._get_base_dir()
+        if base_dir:
+            if subdir:
+                options["dir"] = base_dir.rstrip("/") + "/" + subdir
+            else:
+                options["dir"] = base_dir
+        elif subdir:
+            options["dir"] = subdir
 
         if filename:
             options["out"] = filename
@@ -107,7 +130,7 @@ class Aria2Client:
         批量添加下载任务
 
         Args:
-            tasks: [{"url": "...", "name": "..."}, ...]
+            tasks: [{"url": "...", "name": "...", "subdir": "..."}, ...]
 
         Returns:
             GID 列表
@@ -115,7 +138,11 @@ class Aria2Client:
         gids = []
         for task in tasks:
             try:
-                gid = await self.add_uri(url=task["url"], filename=task.get("name"))
+                gid = await self.add_uri(
+                    url=task["url"],
+                    filename=task.get("name"),
+                    subdir=task.get("subdir"),
+                )
                 gids.append(gid)
             except Exception as e:
                 print(f"[Aria2] ✗ 添加失败: {task.get('name', '未知')} - {e}")

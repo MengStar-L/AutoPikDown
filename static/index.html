@@ -815,6 +815,73 @@
             color: var(--text-secondary);
         }
 
+        /* ── Magnet File Tree ── */
+        .file-row.folder-row {
+            font-weight: 600;
+            color: var(--text-secondary);
+            background: rgba(124, 92, 252, 0.04);
+        }
+
+        .file-row.folder-row:hover {
+            background: rgba(124, 92, 252, 0.08);
+        }
+
+        .magnet-btn-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        /* ── Toggle Switch ── */
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+
+        .toggle-switch {
+            position: relative;
+            width: 36px;
+            height: 20px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            inset: 0;
+            background: var(--bg-tertiary);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .toggle-slider::before {
+            content: '';
+            position: absolute;
+            width: 14px;
+            height: 14px;
+            left: 3px;
+            bottom: 3px;
+            background: white;
+            border-radius: 50%;
+            transition: transform 0.2s;
+        }
+
+        .toggle-switch input:checked+.toggle-slider {
+            background: var(--color-primary);
+        }
+
+        .toggle-switch input:checked+.toggle-slider::before {
+            transform: translateX(16px);
+        }
+
         @media (max-width: 768px) {
             .sidebar {
                 width: 56px;
@@ -910,8 +977,37 @@
                     <textarea class="magnet-input" id="magnetInput"
                         placeholder="粘贴磁力链接，每行一个...&#10;&#10;magnet:?xt=urn:btih:...&#10;magnet:?xt=urn:btih:..."></textarea>
                     <div class="input-footer">
-                        <span class="input-hint">支持多行批量添加，# 开头的行会被忽略</span>
-                        <button class="btn btn-primary" id="submitBtn" onclick="submitMagnets()">🚀 开始处理</button>
+                        <span class="input-hint">单个磁链可解析后选择文件，多行磁链直接全量下载</span>
+                        <div class="magnet-btn-row">
+                            <button class="btn btn-ghost btn-sm" id="parseBtn" onclick="parseMagnet()">🔍 解析选择</button>
+                            <button class="btn btn-primary" id="submitBtn" onclick="submitMagnets()">🚀 全量下载</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- 磁链文件选择区域 -->
+            <div class="card" id="magnetFileArea" style="display:none;margin-top:16px">
+                <div class="card-header">
+                    <h3 id="magnetFileName">📁 文件列表</h3>
+                </div>
+                <div class="card-body" style="padding:0">
+                    <div class="file-list-header">
+                        <label><input type="checkbox" id="magnetSelectAll" onchange="toggleMagnetSelectAll()">
+                            全选</label>
+                        <span class="file-count" id="magnetFileCount"></span>
+                    </div>
+                    <div class="file-list" id="magnetFileList"></div>
+                    <div class="share-actions" style="padding:0 14px 14px">
+                        <div style="display:flex;align-items:center;gap:14px">
+                            <span class="selected-info" id="magnetSelectedInfo">已选 0 个文件</span>
+                            <label class="toggle-row">
+                                <span class="toggle-switch"><input type="checkbox" id="magnetKeepStructure"
+                                        checked><span class="toggle-slider"></span></span>
+                                保留文件夹结构
+                            </label>
+                        </div>
+                        <button class="btn btn-primary btn-sm" id="magnetDownloadBtn" onclick="downloadMagnetFiles()">⬇️
+                            下载选中文件</button>
                     </div>
                 </div>
             </div>
@@ -935,7 +1031,14 @@
                         </div>
                         <div class="file-list" id="fileList"></div>
                         <div class="share-actions">
-                            <span class="selected-info" id="selectedInfo">已选 0 个文件</span>
+                            <div style="display:flex;align-items:center;gap:14px">
+                                <span class="selected-info" id="selectedInfo">已选 0 个文件</span>
+                                <label class="toggle-row">
+                                    <span class="toggle-switch"><input type="checkbox" id="shareKeepStructure"
+                                            checked><span class="toggle-slider"></span></span>
+                                    保留文件夹结构
+                                </label>
+                            </div>
                             <button class="btn btn-primary btn-sm" id="downloadShareBtn"
                                 onclick="downloadShareFiles()">⬇️ 下载选中文件</button>
                         </div>
@@ -1128,12 +1231,12 @@
                 case 'all_done':
                     text = `<span class="success">全部 ${msg.total} 个磁链处理完毕！</span>`;
                     document.getElementById('submitBtn').disabled = false;
-                    document.getElementById('submitBtn').innerHTML = '🚀 开始处理';
+                    document.getElementById('submitBtn').innerHTML = '🚀 全量下载';
                     break;
                 case 'error':
                     text = `<span class="error">${msg.message}</span>`;
                     document.getElementById('submitBtn').disabled = false;
-                    document.getElementById('submitBtn').innerHTML = '🚀 开始处理';
+                    document.getElementById('submitBtn').innerHTML = '🚀 全量下载';
                     break;
             }
             addLogEntry(icon, text);
@@ -1169,11 +1272,135 @@
             try {
                 const resp = await fetch('/api/add', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ magnets: text }) });
                 const data = await resp.json();
-                if (!resp.ok) { addLogEntry('❌', `<span class="error">${data.error}</span>`); btn.disabled = false; btn.innerHTML = '🚀 开始处理'; return; }
+                if (!resp.ok) { addLogEntry('❌', `<span class="error">${data.error}</span>`); btn.disabled = false; btn.innerHTML = '🚀 全量下载'; return; }
                 addLogEntry('📨', data.message);
                 input.value = '';
                 switchPage('progress');
-            } catch (e) { addLogEntry('💥', `<span class="error">请求失败: ${e.message}</span>`); btn.disabled = false; btn.innerHTML = '🚀 开始处理'; }
+            } catch (e) { addLogEntry('💥', `<span class="error">请求失败: ${e.message}</span>`); btn.disabled = false; btn.innerHTML = '🚀 全量下载'; }
+        }
+
+        // ── 磁链解析选择 ──
+        let magnetParseData = { file_id: '', files: [] };
+
+        async function parseMagnet() {
+            const input = document.getElementById('magnetInput');
+            const text = input.value.trim();
+            if (!text) return;
+
+            // 只支持单个磁链解析
+            const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+            if (lines.length > 1) {
+                alert('解析选择仅支持单个磁链，多个磁链请使用“全量下载”');
+                return;
+            }
+
+            const btn = document.getElementById('parseBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 解析中...';
+            document.getElementById('magnetFileArea').style.display = 'none';
+
+            try {
+                const resp = await fetch('/api/magnet/parse', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ magnet: lines[0] })
+                });
+                const data = await resp.json();
+                if (!resp.ok) { alert(data.error); return; }
+
+                magnetParseData = data;
+                renderMagnetFileTree(data.files, data.file_name);
+                document.getElementById('magnetFileArea').style.display = '';
+            } catch (e) { alert('解析失败: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = '🔍 解析选择';
+        }
+
+        function renderMagnetFileTree(files, rootName) {
+            document.getElementById('magnetFileName').textContent = '📁 ' + (rootName || '文件列表');
+            const onlyFiles = files.filter(f => f.kind !== 'drive#folder');
+            document.getElementById('magnetFileCount').textContent = `共 ${onlyFiles.length} 个文件`;
+            document.getElementById('magnetSelectAll').checked = false;
+
+            const iconMap = {
+                'video': '🎬', 'audio': '🎵', 'image': '🖼️',
+                'text': '📄', 'application/zip': '📦', 'application/x-rar': '📦',
+            };
+
+            const list = document.getElementById('magnetFileList');
+            list.innerHTML = files.map((f, i) => {
+                const isFolder = f.kind === 'drive#folder';
+                const depth = (f.path || f.name).split('/').length - 1;
+                const indent = depth * 20;
+
+                if (isFolder) {
+                    return `<div class="file-row folder-row" style="padding-left:${14 + indent}px">
+                        <span class="file-icon">📁</span>
+                        <span class="file-name">${f.name}</span>
+                    </div>`;
+                }
+
+                let icon = '📄';
+                for (const [key, val] of Object.entries(iconMap)) {
+                    if (f.file_type && f.file_type.includes(key)) { icon = val; break; }
+                }
+                return `<div class="file-row" style="padding-left:${14 + indent}px" onclick="toggleMagnetFileCheck(${i}, event)">
+                    <input type="checkbox" data-index="${i}" onclick="event.stopPropagation(); updateMagnetSelectedInfo()">
+                    <span class="file-icon">${icon}</span>
+                    <span class="file-name" title="${f.path || f.name}">${f.name}</span>
+                    <span class="file-size">${f.size_str || ''}</span>
+                </div>`;
+            }).join('');
+            updateMagnetSelectedInfo();
+        }
+
+        function toggleMagnetFileCheck(index, event) {
+            const cb = document.querySelector(`#magnetFileList input[data-index="${index}"]`);
+            if (cb) { cb.checked = !cb.checked; updateMagnetSelectedInfo(); }
+        }
+
+        function toggleMagnetSelectAll() {
+            const checked = document.getElementById('magnetSelectAll').checked;
+            document.querySelectorAll('#magnetFileList input[type=checkbox]').forEach(cb => cb.checked = checked);
+            updateMagnetSelectedInfo();
+        }
+
+        function updateMagnetSelectedInfo() {
+            const checked = document.querySelectorAll('#magnetFileList input[type=checkbox]:checked');
+            const total = document.querySelectorAll('#magnetFileList input[type=checkbox]');
+            document.getElementById('magnetSelectedInfo').textContent = `已选 ${checked.length} / ${total.length} 个文件`;
+        }
+
+        async function downloadMagnetFiles() {
+            const checkedBoxes = document.querySelectorAll('#magnetFileList input[type=checkbox]:checked');
+            if (!checkedBoxes.length) { alert('请先选择文件'); return; }
+
+            const selectedIds = Array.from(checkedBoxes).map(cb => {
+                const idx = parseInt(cb.dataset.index);
+                return magnetParseData.files[idx].id;
+            });
+            const keepStructure = document.getElementById('magnetKeepStructure').checked;
+
+            const btn = document.getElementById('magnetDownloadBtn');
+            btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 处理中...';
+
+            try {
+                const resp = await fetch('/api/magnet/download', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        file_id: magnetParseData.file_id,
+                        selected_ids: selectedIds,
+                        keep_structure: keepStructure,
+                    })
+                });
+                const data = await resp.json();
+                if (!resp.ok) { alert(data.error); }
+                else {
+                    addLogEntry('📨', data.message);
+                    switchPage('progress');
+                    document.getElementById('magnetFileArea').style.display = 'none';
+                }
+            } catch (e) { alert('请求失败: ' + e.message); }
+            btn.disabled = false; btn.innerHTML = '⬇️ 下载选中文件';
         }
 
         async function refreshStatus() {
@@ -1327,6 +1554,14 @@
             const btn = document.getElementById('downloadShareBtn');
             btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 处理中...';
 
+            const keepStructure = document.getElementById('shareKeepStructure').checked;
+            // 构建 file_id -> path 映射
+            const filePaths = {};
+            Array.from(checkedBoxes).forEach(cb => {
+                const f = shareData.files[cb.dataset.index];
+                if (f.path) filePaths[f.id] = f.path;
+            });
+
             try {
                 const resp = await fetch('/api/share/download', {
                     method: 'POST',
@@ -1335,6 +1570,8 @@
                         share_id: shareData.share_id,
                         file_ids: fileIds,
                         pass_code_token: shareData.pass_code_token,
+                        keep_structure: keepStructure,
+                        file_paths: filePaths,
                     })
                 });
                 const data = await resp.json();
