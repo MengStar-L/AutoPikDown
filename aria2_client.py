@@ -99,14 +99,19 @@ class Aria2Client:
         """
         options = {}
 
-        base_dir = await self._get_base_dir()
-        if base_dir:
+        if self.download_dir:
+            # 用户指定了下载目录，直接使用
             if subdir:
+                options["dir"] = self.download_dir.rstrip("/") + "/" + subdir
+            else:
+                options["dir"] = self.download_dir
+        elif subdir:
+            # 留空但有子目录需求，查询 aria2 默认目录来拼接
+            base_dir = await self._get_base_dir()
+            if base_dir:
                 options["dir"] = base_dir.rstrip("/") + "/" + subdir
             else:
-                options["dir"] = base_dir
-        elif subdir:
-            options["dir"] = subdir
+                options["dir"] = subdir
 
         if filename:
             options["out"] = filename
