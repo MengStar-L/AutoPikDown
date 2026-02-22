@@ -1197,6 +1197,14 @@
     </div>
 
     <script>
+        // ── 全局 401 拦截 ──
+        const _origFetch = window.fetch;
+        window.fetch = async function (...args) {
+            const resp = await _origFetch.apply(this, args);
+            if (resp.status === 401) { window.location.href = '/login'; }
+            return resp;
+        };
+
         // ── Navigation ──
         function switchPage(name) {
             document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));

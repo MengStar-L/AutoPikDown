@@ -1,9 +1,13 @@
 """AutoPikDown Web 服务器"""
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
+import time
 
 import feedparser
 import httpx
@@ -24,13 +28,23 @@ class WebServer:
         self.config = config
         self.app = web.Application()
         self.ws_clients: Set[web.WebSocketResponse] = set()
-        self._setup_routes()
         self._pikpak: PikPakClient | None = None
         self._aria2: Aria2Client | None = None
+
+        # 认证配置
+        self._auth_password = config.get("web", {}).get("auth_password", "")
+        self._session_secret = secrets.token_hex(32)
+        if self._auth_password:
+            self.app.middlewares.append(self._auth_middleware)
+
+        self._setup_routes()
 
     def _setup_routes(self):
         static_dir = Path(__file__).parent / "static"
         self.app.router.add_get("/", self._index)
+        self.app.router.add_get("/login", self._login_page)
+        self.app.router.add_post("/api/login", self._api_login)
+        self.app.router.add_post("/api/logout", self._api_logout)
         self.app.router.add_post("/api/add", self._api_add)
         self.app.router.add_post("/api/magnet/parse", self._api_magnet_parse)
         self.app.router.add_post("/api/magnet/download", self._api_magnet_download)
@@ -124,6 +138,90 @@ class WebServer:
             except Exception:
                 dead.add(ws)
         self.ws_clients -= dead
+
+    # ── 认证 ──
+
+    def _make_session_token(self) -> str:
+        """生成带签名的 session token"""
+        ts = str(int(time.time()))
+        sig = hmac.new(
+            self._session_secret.encode(),
+            ts.encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        return f"{ts}.{sig}"
+
+    def _verify_session_token(self, token: str) -> bool:
+        """验证 session token 签名"""
+        try:
+            ts, sig = token.split(".", 1)
+            expected = hmac.new(
+                self._session_secret.encode(),
+                ts.encode(),
+                hashlib.sha256,
+            ).hexdigest()
+            if not hmac.compare_digest(sig, expected):
+                return False
+            # token 有效期 7 天
+            return (time.time() - int(ts)) < 7 * 86400
+        except Exception:
+            return False
+
+    @web.middleware
+    async def _auth_middleware(self, request: web.Request, handler):
+        """认证中间件：检查 session cookie"""
+        # 放行登录相关路径
+        path = request.path
+        if path in ("/login", "/api/login") or path.startswith("/static/"):
+            return await handler(request)
+
+        # 检查 cookie
+        token = request.cookies.get("apd_session", "")
+        if token and self._verify_session_token(token):
+            return await handler(request)
+
+        # 未认证
+        if path.startswith("/api/") or path == "/ws":
+            return web.json_response({"error": "未登录"}, status=401)
+        else:
+            raise web.HTTPFound("/login")
+
+    async def _login_page(self, request: web.Request) -> web.FileResponse:
+        """登录页面"""
+        # 如果未启用认证，直接跳转首页
+        if not self._auth_password:
+            raise web.HTTPFound("/")
+        return web.FileResponse(Path(__file__).parent / "static" / "login.html")
+
+    async def _api_login(self, request: web.Request) -> web.Response:
+        """登录验证"""
+        try:
+            body = await request.json()
+            password = body.get("password", "")
+        except Exception:
+            return web.json_response({"error": "参数错误"}, status=400)
+
+        if not self._auth_password:
+            return web.json_response({"message": "认证未启用"})
+
+        if password != self._auth_password:
+            return web.json_response({"error": "密码错误"}, status=403)
+
+        resp = web.json_response({"message": "登录成功"})
+        resp.set_cookie(
+            "apd_session",
+            self._make_session_token(),
+            max_age=7 * 86400,
+            httponly=True,
+            samesite="Lax",
+        )
+        return resp
+
+    async def _api_logout(self, request: web.Request) -> web.Response:
+        """登出"""
+        resp = web.json_response({"message": "已登出"})
+        resp.del_cookie("apd_session")
+        return resp
 
     # ── 路由处理 ──
 

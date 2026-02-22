@@ -12,3 +12,6 @@ aria2:
 task:
   poll_interval: 3                     # 离线任务轮询间隔 (秒)
   max_wait_time: 3600                  # 离线任务最大等待时间 (秒)
+
+web:
+  auth_password: ""                    # Web 访问密码 (留空则不启用认证)
