@@ -413,6 +413,21 @@ class WebServer:
         else:
             return f"{size} B"
 
+    @staticmethod
+    def _maybe_rename_by_folder(url_info: dict, rename: bool) -> str:
+        """根据 rename_by_folder 选项，用上级文件夹名 + 原扩展名重命名文件"""
+        name = url_info.get("name", "")
+        if not rename:
+            return name
+        path = url_info.get("path", "")
+        parts = path.split("/")
+        if len(parts) >= 2:
+            folder_name = parts[-2]
+            dot_idx = name.rfind(".")
+            ext = name[dot_idx:] if dot_idx > 0 else ""
+            return folder_name + ext
+        return name
+
     async def _api_status(self, request: web.Request) -> web.Response:
         """获取离线任务状态"""
         try:
@@ -652,11 +667,14 @@ class WebServer:
             # 前端传入的文件路径映射 {file_id: path}
             file_paths = body.get("file_paths", {})
 
+            rename_by_folder = body.get("rename_by_folder", False)
+
             if not share_id or not file_ids:
                 return web.json_response({"error": "缺少参数"}, status=400)
 
             asyncio.create_task(self._process_share_download(
-                share_id, file_ids, pass_code_token, keep_structure, file_paths
+                share_id, file_ids, pass_code_token, keep_structure, file_paths,
+                rename_by_folder,
             ))
 
             return web.json_response({
@@ -668,6 +686,7 @@ class WebServer:
     async def _process_share_download(
         self, share_id: str, file_ids: List[str], pass_code_token: str,
         keep_structure: bool = True, file_paths: Dict[str, str] = None,
+        rename_by_folder: bool = False,
     ):
         """后台处理分享文件下载"""
         try:
@@ -739,7 +758,11 @@ class WebServer:
                                     subdir = "/".join(parts[1:-1]) or None
                                 # 只有两层如 "Pack From Shared/file.mp4" → 无需子目录
                         gid = await asyncio.wait_for(
-                            self._aria2.add_uri(url_info["url"], url_info["name"], subdir=subdir),
+                            self._aria2.add_uri(
+                                url_info["url"],
+                                self._maybe_rename_by_folder(url_info, rename_by_folder),
+                                subdir=subdir,
+                            ),
                             timeout=10.0
                         )
                         if gid:

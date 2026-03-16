@@ -1031,12 +1031,17 @@
                         </div>
                         <div class="file-list" id="fileList"></div>
                         <div class="share-actions">
-                            <div style="display:flex;align-items:center;gap:14px">
+                            <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
                                 <span class="selected-info" id="selectedInfo">已选 0 个文件</span>
                                 <label class="toggle-row">
                                     <span class="toggle-switch"><input type="checkbox" id="shareKeepStructure"
                                             checked><span class="toggle-slider"></span></span>
                                     保留文件夹结构
+                                </label>
+                                <label class="toggle-row">
+                                    <span class="toggle-switch"><input type="checkbox" id="shareRenameByFolder"
+                                            onchange="reRenderShareFileList()"><span class="toggle-slider"></span></span>
+                                    以文件夹名重命名
                                 </label>
                             </div>
                             <button class="btn btn-primary btn-sm" id="downloadShareBtn"
@@ -1512,10 +1517,31 @@
             btn.disabled = false; btn.innerHTML = '🔍 解析';
         }
 
+        function getRenameName(f) {
+            // 从 path 中提取上级文件夹名 + 原文件扩展名
+            const path = f.path || '';
+            const parts = path.split('/');
+            if (parts.length >= 2) {
+                const folderName = parts[parts.length - 2];
+                const origName = f.name;
+                const dotIndex = origName.lastIndexOf('.');
+                const ext = dotIndex > 0 ? origName.substring(dotIndex) : '';
+                return folderName + ext;
+            }
+            return f.name; // 没有上级文件夹，保持原名
+        }
+
+        function reRenderShareFileList() {
+            if (shareData.files && shareData.files.length) {
+                renderFileList(shareData.files);
+            }
+        }
+
         function renderFileList(files) {
             const list = document.getElementById('fileList');
             document.getElementById('fileCount').textContent = `共 ${files.length} 个文件`;
             document.getElementById('selectAll').checked = false;
+            const renameByFolder = document.getElementById('shareRenameByFolder')?.checked || false;
 
             const iconMap = {
                 'video': '🎬', 'audio': '🎵', 'image': '🖼️',
@@ -1527,10 +1553,13 @@
                 for (const [key, val] of Object.entries(iconMap)) {
                     if (f.file_type && f.file_type.includes(key)) { icon = val; break; }
                 }
+                const displayName = renameByFolder ? getRenameName(f) : f.name;
+                const renameTag = (renameByFolder && displayName !== f.name)
+                    ? ` <span style="color:var(--accent);font-size:11px">(← ${f.name})</span>` : '';
                 return `<div class="file-row" onclick="toggleFileCheck(${i}, event)">
                     <input type="checkbox" data-index="${i}" onclick="event.stopPropagation(); updateSelectedInfo()">
                     <span class="file-icon">${icon}</span>
-                    <span class="file-name" title="${f.path || f.name}">${f.name}</span>
+                    <span class="file-name" title="${f.path || f.name}">${displayName}${renameTag}</span>
                     <span class="file-size">${f.size_str || ''}</span>
                 </div>`;
             }).join('');
@@ -1571,6 +1600,7 @@
             });
 
             try {
+                const renameByFolder = document.getElementById('shareRenameByFolder').checked;
                 const resp = await fetch('/api/share/download', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -1580,6 +1610,7 @@
                         pass_code_token: shareData.pass_code_token,
                         keep_structure: keepStructure,
                         file_paths: filePaths,
+                        rename_by_folder: renameByFolder,
                     })
                 });
                 const data = await resp.json();
