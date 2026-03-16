@@ -414,12 +414,13 @@ class WebServer:
             return f"{size} B"
 
     @staticmethod
-    def _maybe_rename_by_folder(url_info: dict, rename: bool) -> str:
+    def _maybe_rename_by_folder(url_info: dict, rename: bool, original_path: str = "") -> str:
         """根据 rename_by_folder 选项，用上级文件夹名 + 原扩展名重命名文件"""
         name = url_info.get("name", "")
         if not rename:
             return name
-        path = url_info.get("path", "")
+        # 优先使用原始分享路径（保存后路径的上级文件夹是 "Pack From Shared"，不可用）
+        path = original_path or url_info.get("path", "")
         parts = path.split("/")
         if len(parts) >= 2:
             folder_name = parts[-2]
@@ -712,6 +713,13 @@ class WebServer:
             success_count = 0
             all_file_ids = []
 
+            # 构建 文件名 → 原始分享路径 的映射（用于 rename_by_folder）
+            _orig_paths_by_name = {}
+            if rename_by_folder and file_paths:
+                for _fid, _path in file_paths.items():
+                    _name = _path.rsplit("/", 1)[-1]
+                    _orig_paths_by_name.setdefault(_name, []).append(_path)
+
             print(f"[PikPak] 开始处理 {len(saved_ids)} 个文件")
             for i, fid in enumerate(saved_ids, 1):
                 # 更新状态
@@ -757,10 +765,16 @@ class WebServer:
                                     # 例: "Pack From Shared/FolderA/file.mp4" → "FolderA"
                                     subdir = "/".join(parts[1:-1]) or None
                                 # 只有两层如 "Pack From Shared/file.mp4" → 无需子目录
+                        # 查找原始分享路径用于重命名
+                        orig_path = ""
+                        if rename_by_folder:
+                            fname = url_info.get("name", "")
+                            if fname in _orig_paths_by_name and _orig_paths_by_name[fname]:
+                                orig_path = _orig_paths_by_name[fname].pop(0)
                         gid = await asyncio.wait_for(
                             self._aria2.add_uri(
                                 url_info["url"],
-                                self._maybe_rename_by_folder(url_info, rename_by_folder),
+                                self._maybe_rename_by_folder(url_info, rename_by_folder, orig_path),
                                 subdir=subdir,
                             ),
                             timeout=10.0
